@@ -1,0 +1,48 @@
+{
+  "settings": {
+    "title": "Settings",
+    "player-name": "Player name",
+    "player-name-desc": "playerctl player filter. Use mpd for MPD, or leave empty to use the active player.",
+    "music-directory": "Music directory",
+    "music-directory-desc": "Base directory for relative MPD file paths.",
+    "lyric-extensions": "Lyric extensions",
+    "lyric-extensions-desc": "Comma-separated extensions to try next to the music file.",
+    "update-interval": "Sync interval",
+    "text-vertical-offset": "Text vertical offset",
+    "font": {
+      "title": "Font Family",
+      "desc": "Select the font for lyrics.",
+      "placeholder": "Select a font...",
+      "search-placeholder": "Search a font...",
+      "size": "Font Size",
+      "size-desc": "Text size in points."
+    },
+    "width": "Widget Width",
+    "scroll": {
+      "speed": "Scroll Speed",
+      "mode": {
+        "title": "Scroll Mode",
+        "always": "Always Scroll",
+        "hover": "Scroll on Hover",
+        "never": "Never Scroll"
+      },
+      "adapt": "Adapt scroll speed to line",
+      "adapt-desc": "Change scroll speed based on length of line"
+    },
+    "hide-when-empty": "Hide when empty",
+    "hide-when-paused": "Hide when paused",
+    "vertical-rotation": {
+      "title": "Vertical lyrics orientation",
+      "description": "Change direction of the lyrics when using a vertical bar.",
+      "auto": "Automatic",
+      "cw": "Clockwise",
+      "ccw": "Counterclockwise"
+    }
+  },
+  "lyrics": {
+    "paused": "Music paused",
+    "loading": "Loading local lyrics",
+    "stopped": "No song playing",
+    "no-local": "No local lyrics"
+  }
+}

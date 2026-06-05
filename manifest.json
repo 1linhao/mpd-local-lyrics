@@ -1,0 +1,39 @@
+{
+  "id": "mpd-local-lyrics",
+  "name": "MPD Local Lyrics",
+  "version": "0.1.0",
+  "minNoctaliaVersion": "3.6.0",
+  "author": "lh",
+  "license": "GPL-3.0-only",
+  "description": "Fork of Lyrics Fetch/Bar Display that reads local LRC files for MPD libraries.",
+  "tags": [
+    "Bar",
+    "Music"
+  ],
+  "entryPoints": {
+    "main": "Main.qml",
+    "barWidget": "BarWidget.qml",
+    "settings": "Settings.qml"
+  },
+  "dependencies": {
+    "plugins": []
+  },
+  "metadata": {
+    "defaultSettings": {
+      "playerName": "mpd",
+      "musicDirectory": "$HOME/Music",
+      "lyricExtensions": ".lrc,.LRC",
+      "widgetWidth": 300,
+      "scrollSpeed": 70,
+      "fontSize": 10,
+      "textVerticalOffset": -2,
+      "scrollMode": "always",
+      "hideWhenEmpty": true,
+      "hideWhenPaused": false,
+      "adaptScrollSpeed": true,
+      "verticalRotationDirection": "auto",
+      "updateInterval": 250
+    }
+  },
+  "repository": "https://github.com/<your-username>/mpd-local-lyrics"
+}
