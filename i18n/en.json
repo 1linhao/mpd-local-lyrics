@@ -1,8 +1,8 @@
 {
   "settings": {
     "title": "Settings",
-    "player-name": "Player name",
-    "player-name-desc": "playerctl player filter. Use mpd for MPD, or leave empty to use the active player.",
+    "mpd-socket-path": "MPD socket path",
+    "mpd-socket-path-desc": "Unix socket path from MPD bind_to_address.",
     "music-directory": "Music directory",
     "music-directory-desc": "Base directory for relative MPD file paths.",
     "lyric-extensions": "Lyric extensions",

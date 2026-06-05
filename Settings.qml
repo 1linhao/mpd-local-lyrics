@@ -8,7 +8,7 @@ ColumnLayout {
     id: root
     property var pluginApi: null
 
-    property string draftPlayerName: pluginApi?.pluginSettings?.playerName ?? "mpd"
+    property string draftMpdSocketPath: pluginApi?.pluginSettings?.mpdSocketPath ?? "$XDG_RUNTIME_DIR/mpd/socket"
     property string draftMusicDirectory: pluginApi?.pluginSettings?.musicDirectory ?? "$HOME/Music"
     property string draftLyricExtensions: pluginApi?.pluginSettings?.lyricExtensions ?? ".lrc,.LRC"
     property int draftUpdateInterval: pluginApi?.pluginSettings?.updateInterval ?? 250
@@ -34,7 +34,7 @@ ColumnLayout {
 
     function saveSettings() {
         if (pluginApi) {
-            pluginApi.pluginSettings.playerName = draftPlayerName;
+            pluginApi.pluginSettings.mpdSocketPath = draftMpdSocketPath;
             pluginApi.pluginSettings.musicDirectory = draftMusicDirectory;
             pluginApi.pluginSettings.lyricExtensions = draftLyricExtensions;
             pluginApi.pluginSettings.updateInterval = draftUpdateInterval;
@@ -53,11 +53,11 @@ ColumnLayout {
     }
 
     NTextInput {
-        label: pluginApi?.tr("settings.player-name")
-        description: pluginApi?.tr("settings.player-name-desc")
+        label: pluginApi?.tr("settings.mpd-socket-path")
+        description: pluginApi?.tr("settings.mpd-socket-path-desc")
         Layout.fillWidth: true
-        text: draftPlayerName
-        onTextChanged: draftPlayerName = text
+        text: draftMpdSocketPath
+        onTextChanged: draftMpdSocketPath = text
     }
 
     NTextInput {

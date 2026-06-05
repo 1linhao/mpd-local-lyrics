@@ -9,18 +9,19 @@ Item {
     property var pluginApi: null
 
     property string currentTitle: ""
-    property string currentPlayer: ""
     property string currentArtist: ""
     property string currentAlbum: ""
-    property string currentUrl: ""
+    property string currentFile: ""
+    property string currentLyricPath: ""
+    property string currentLyricSignature: ""
     property real currentPosition: 0
+    property real currentPositionSyncedAt: 0
     property string currentStatus: "Stopped"
 
     property string tempTitle: ""
-    property string tempPlayer: ""
     property string tempArtist: ""
     property string tempAlbum: ""
-    property string tempUrl: ""
+    property string tempFile: ""
 
     property var songLyrics: []
     property int songIndex: -2
@@ -29,15 +30,24 @@ Item {
     property bool hasLyrics: false
     property string lastLyric: ""
 
-    property string playerName: pluginApi?.pluginSettings?.playerName ?? "mpd"
+    property bool mpdRequestInFlight: false
+    property real mpdRequestStartedAt: 0
+    property var mpdResponseLines: []
+
+    property string mpdSocketPath: pluginApi?.pluginSettings?.mpdSocketPath ?? "$XDG_RUNTIME_DIR/mpd/socket"
     property string musicDirectory: pluginApi?.pluginSettings?.musicDirectory ?? "$HOME/Music"
     property string lyricExtensions: pluginApi?.pluginSettings?.lyricExtensions ?? ".lrc,.LRC"
     property int updateInterval: pluginApi?.pluginSettings?.updateInterval ?? 250
+    property int lyricWatchInterval: pluginApi?.pluginSettings?.lyricWatchInterval ?? 1000
     property bool hideWhenPaused: pluginApi?.pluginSettings?.hideWhenPaused ?? false
     property bool hideWhenEmpty: pluginApi?.pluginSettings?.hideWhenEmpty ?? true
 
     readonly property string helperPath: decodeURIComponent(Qt.resolvedUrl("scripts/read-local-lrc.sh").toString().replace(/^file:\/\//, ""))
     readonly property string emptyGlyph: "​"
+    readonly property string expandedMpdSocketPath: expandPath(mpdSocketPath)
+
+    onExpandedMpdSocketPathChanged: mpdReconnectTimer.restart()
+    Component.onCompleted: mpdReconnectTimer.restart()
 
     property string currentLyric: {
         if (currentStatus === "Stopped" || currentStatus === "")
@@ -53,19 +63,93 @@ Item {
         return emptyGlyph
     }
 
-    function playerctlArgs(args) {
-        var command = ["playerctl"];
-        if (playerName && playerName.trim() !== "")
-            command.push("--player", playerName.trim());
-        return command.concat(args);
+    function expandPath(path) {
+        if (!path)
+            return "";
+
+        var expanded = path;
+        const home = Quickshell.env("HOME") || "";
+        const runtimeDir = Quickshell.env("XDG_RUNTIME_DIR") || "";
+
+        if (expanded === "~")
+            expanded = home;
+        else if (expanded.indexOf("~/") === 0)
+            expanded = home + expanded.slice(1);
+
+        if (expanded.indexOf("$HOME") === 0)
+            expanded = home + expanded.slice(5);
+        if (expanded.indexOf("$XDG_RUNTIME_DIR") === 0)
+            expanded = runtimeDir + expanded.slice(16);
+
+        return expanded;
     }
 
-    function sameTrack(player, artist, title, album, url) {
-        return player === currentPlayer
-            && artist === currentArtist
-            && title === currentTitle
-            && album === currentAlbum
-            && url === currentUrl;
+    function baseName(path) {
+        if (!path)
+            return "";
+        var name = path.split("/").pop();
+        var dot = name.lastIndexOf(".");
+        return dot > 0 ? name.slice(0, dot) : name;
+    }
+
+    function lyricLookupArgs(file, title) {
+        return [musicDirectory, lyricExtensions, file, title];
+    }
+
+    function lyricMetadataFromLine(line) {
+        if (!line)
+            return { "signature": "", "path": "" };
+
+        var cleanLine = line.replace(/\r$/, "");
+        var parts = cleanLine.split("\t");
+        if (parts[0] === "#MPD_LOCAL_LYRICS")
+            parts.shift();
+        if (parts.length < 3)
+            return { "signature": "", "path": "" };
+
+        return {
+            "signature": parts[0] + ":" + parts[1],
+            "path": parts.slice(2).join("\t")
+        };
+    }
+
+    function lyricPayload(output) {
+        var lines = output.split(/\r?\n/);
+        var metadata = { "signature": "", "path": "" };
+
+        if (lines.length > 0 && lines[0].indexOf("#MPD_LOCAL_LYRICS\t") === 0) {
+            metadata = lyricMetadataFromLine(lines[0]);
+            lines.shift();
+        }
+
+        return {
+            "metadata": metadata,
+            "lyrics": lines.join("\n")
+        };
+    }
+
+    function requestLyrics(artist, title, album, file, showLoading) {
+        if (fetchLyricProc.running && !showLoading)
+            return;
+        if (fetchLyricProc.running)
+            fetchLyricProc.running = false;
+
+        if (showLoading) {
+            isLoading = true;
+            hasLyrics = false;
+            lastLyric = "";
+            songLyrics = [];
+            songIndex = -2;
+            lyricInterval = 0;
+            currentLyricPath = "";
+            currentLyricSignature = "";
+        }
+
+        tempArtist = artist;
+        tempTitle = title;
+        tempAlbum = album;
+        tempFile = file;
+        fetchLyricProc.running = true;
     }
 
     function parseTime(minutes, seconds, fraction) {
@@ -103,8 +187,15 @@ Item {
         return parsed;
     }
 
+    function estimatedPosition() {
+        if (currentStatus !== "Playing" || currentPositionSyncedAt <= 0)
+            return currentPosition;
+
+        return currentPosition + Math.max(0, Date.now() - currentPositionSyncedAt) / 1000;
+    }
+
     function getLyricIndex() {
-        const pos = root.currentPosition;
+        const pos = root.estimatedPosition();
         const lyrics = root.songLyrics;
         var start = 0;
         var len = lyrics.length;
@@ -137,18 +228,23 @@ Item {
         }
 
         if (songLyrics.length === 1) {
-            lastLyric = currentPosition >= songLyrics[0].time ? songLyrics[0].lyric : "";
+            lastLyric = estimatedPosition() >= songLyrics[0].time ? songLyrics[0].lyric : "";
             lyricInterval = 0;
             return;
         }
 
         var index = getLyricIndex();
         if (index < 0) {
-            lastLyric = "";
-            songIndex = index;
-            lyricInterval = 0;
+            if (songIndex !== index || lastLyric !== "") {
+                lastLyric = "";
+                songIndex = index;
+                lyricInterval = 0;
+            }
             return;
         }
+
+        if (index === songIndex)
+            return;
 
         songIndex = index;
         lastLyric = songLyrics[index]?.lyric ?? "";
@@ -159,106 +255,211 @@ Item {
             lyricInterval = 0;
     }
 
-    Process {
-        id: songDetailsProc
-        command: root.playerctlArgs(["metadata", "--format", "{{ playerName }}:::{{ status }}:::{{ xesam:artist }}:::{{ xesam:title }}:::{{ album }}:::{{ xesam:url }}", "-F"])
-        running: true
+    function resetPlaybackState() {
+        currentStatus = "Stopped";
+        currentFile = "";
+        currentTitle = "";
+        currentArtist = "";
+        currentAlbum = "";
+        currentPosition = 0;
+        currentPositionSyncedAt = 0;
+        currentLyricPath = "";
+        currentLyricSignature = "";
+        songLyrics = [];
+        hasLyrics = false;
+        isLoading = false;
+        songIndex = -2;
+        lastLyric = "";
+        lyricInterval = 0;
+    }
 
-        stdout: SplitParser {
-            onRead: data => {
-                const parts = data.trim().split(":::");
-                const player = parts[0] || "";
-                const status = parts[1] || "";
-                const artist = parts[2] || "";
-                const title = parts[3] || "";
-                const album = parts[4] || "";
-                const url = parts.slice(5).join(":::") || "";
+    function parseMpdFields(lines) {
+        var fields = {};
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            var index = line.indexOf(": ");
+            if (index <= 0)
+                continue;
 
-                if (!status || !player || (!title && !url))
-                    return;
+            fields[line.slice(0, index)] = line.slice(index + 2);
+        }
+        return fields;
+    }
 
-                if (sameTrack(player, artist, title, album, url)) {
-                    root.currentStatus = status;
-                    if (status === "Playing") {
-                        positionTimer.restart();
-                    } else if (status === "Paused") {
-                        positionTimer.stop();
-                    } else if (status === "Stopped") {
-                        positionTimer.stop();
-                        root.lastLyric = "";
-                    }
-                    return;
-                }
+    function statusFromMpdState(state) {
+        if (state === "play")
+            return "Playing";
+        if (state === "pause")
+            return "Paused";
+        return "Stopped";
+    }
 
-                root.isLoading = true;
-                root.hasLyrics = false;
-                root.lastLyric = "";
-                root.songLyrics = [];
-                root.songIndex = -2;
-                root.lyricInterval = 0;
-                root.tempArtist = artist;
-                root.tempPlayer = player;
-                root.tempTitle = title;
-                root.tempAlbum = album;
-                root.tempUrl = url;
-                root.currentStatus = status;
-                fetchLyricProc.running = true;
+    function elapsedFromMpdFields(fields) {
+        var elapsed = parseFloat(fields["elapsed"] || "");
+        if (!isNaN(elapsed))
+            return elapsed;
+
+        var time = fields["time"] || "";
+        var sep = time.indexOf(":");
+        if (sep > 0) {
+            elapsed = parseFloat(time.slice(0, sep));
+            if (!isNaN(elapsed))
+                return elapsed;
+        }
+
+        return NaN;
+    }
+
+    function syncPosition(position, status) {
+        if (isNaN(position))
+            return;
+
+        currentPosition = position;
+        currentPositionSyncedAt = status === "Playing" ? Date.now() : 0;
+        updateCurrentLyric();
+    }
+
+    function applyMpdResponse(lines) {
+        var fields = parseMpdFields(lines);
+        var status = statusFromMpdState(fields["state"] || "");
+        var file = fields["file"] || "";
+        var elapsed = elapsedFromMpdFields(fields);
+
+        if (status === "Stopped" || file === "") {
+            resetPlaybackState();
+            return;
+        }
+
+        var title = fields["Title"] || fields["title"] || fields["Name"] || baseName(file);
+        var artist = fields["Artist"] || fields["artist"] || "";
+        var album = fields["Album"] || fields["album"] || "";
+        var changedTrack = file !== currentFile;
+
+        currentStatus = status;
+        currentTitle = title;
+        currentArtist = artist;
+        currentAlbum = album;
+
+        if (changedTrack) {
+            currentFile = file;
+            currentPosition = isNaN(elapsed) ? 0 : elapsed;
+            currentPositionSyncedAt = status === "Playing" ? Date.now() : 0;
+            requestLyrics(artist, title, album, file, true);
+        } else {
+            syncPosition(elapsed, status);
+        }
+    }
+
+    function requestMpdState() {
+        if (mpdSocket.path === "" || !mpdSocket.connected)
+            return;
+
+        if (mpdRequestInFlight && Date.now() - mpdRequestStartedAt < 2000)
+            return;
+
+        mpdRequestInFlight = true;
+        mpdRequestStartedAt = Date.now();
+        mpdResponseLines = [];
+        mpdSocket.write("command_list_begin\nstatus\ncurrentsong\ncommand_list_end\n");
+        mpdSocket.flush();
+    }
+
+    function reconnectMpdSocket() {
+        if (expandedMpdSocketPath === "")
+            return;
+
+        mpdSocket.connected = false;
+        mpdSocket.connected = true;
+    }
+
+    function handleMpdLine(data) {
+        var line = data.replace(/\r$/, "");
+        if (line === "")
+            return;
+
+        if (line.indexOf("OK MPD") === 0) {
+            mpdRequestInFlight = false;
+            mpdResponseLines = [];
+            requestMpdState();
+            return;
+        }
+
+        if (line.indexOf("ACK ") === 0) {
+            Logger.e("MpdLocalLyrics", "MPD error:", line);
+            mpdRequestInFlight = false;
+            mpdResponseLines = [];
+            return;
+        }
+
+        if (line === "OK") {
+            var lines = mpdResponseLines;
+            mpdRequestInFlight = false;
+            mpdResponseLines = [];
+            applyMpdResponse(lines);
+            return;
+        }
+
+        mpdResponseLines = mpdResponseLines.concat([line]);
+    }
+
+    Socket {
+        id: mpdSocket
+        path: root.expandedMpdSocketPath
+        connected: false
+
+        parser: SplitParser {
+            onRead: data => root.handleMpdLine(data)
+        }
+
+        onConnectionStateChanged: {
+            if (!connected) {
+                root.mpdRequestInFlight = false;
+                root.mpdResponseLines = [];
             }
         }
 
-        stderr: StdioCollector {
-            onStreamFinished: {
-                root.currentStatus = "Stopped";
-                root.hasLyrics = false;
-                root.lastLyric = "";
-                songDetailsProc.running = true;
-            }
+        onError: error => {
+            Logger.e("MpdLocalLyrics", "MPD socket error:", error, "path:", root.expandedMpdSocketPath);
+            root.mpdRequestInFlight = false;
         }
     }
 
     Timer {
-        id: positionTimer
+        id: syncTimer
         interval: root.updateInterval
         repeat: true
-        running: root.currentStatus === "Playing"
+        running: root.expandedMpdSocketPath !== ""
         onTriggered: {
-            if (!songPositionProc.running)
-                songPositionProc.running = true;
+            root.updateCurrentLyric();
+            root.requestMpdState();
         }
     }
 
-    Process {
-        id: songPositionProc
-        command: root.playerctlArgs(["position"])
-        running: false
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                var pos = parseFloat(this.text.trim());
-                if (!isNaN(pos)) {
-                    root.currentPosition = pos;
-                    root.updateCurrentLyric();
-                }
-                songPositionProc.running = false;
-            }
-        }
+    Timer {
+        id: mpdReconnectTimer
+        interval: 2000
+        repeat: true
+        running: root.expandedMpdSocketPath !== "" && !mpdSocket.connected
+        triggeredOnStart: true
+        onTriggered: root.reconnectMpdSocket()
     }
 
     Process {
         id: fetchLyricProc
-        command: [root.helperPath, root.musicDirectory, root.lyricExtensions, root.tempUrl, root.tempTitle, root.tempArtist]
+        command: [root.helperPath, "--with-metadata"].concat(root.lyricLookupArgs(root.tempFile, root.tempTitle))
         running: false
 
         stdout: StdioCollector {
             onStreamFinished: {
-                const output = this.text;
-                const parsed = root.parseLyrics(output);
+                const payload = root.lyricPayload(this.text);
+                const parsed = root.parseLyrics(payload.lyrics);
 
                 root.currentArtist = root.tempArtist;
-                root.currentPlayer = root.tempPlayer;
                 root.currentTitle = root.tempTitle;
                 root.currentAlbum = root.tempAlbum;
-                root.currentUrl = root.tempUrl;
+                root.currentFile = root.tempFile;
+                root.currentLyricPath = payload.metadata.path;
+                root.currentLyricSignature = payload.metadata.signature;
                 root.songLyrics = parsed;
                 root.hasLyrics = parsed.length > 0;
                 root.isLoading = false;
@@ -268,9 +469,56 @@ Item {
                 if (!root.hasLyrics)
                     Logger.e("MpdLocalLyrics", "No local synced lyrics found for", root.currentArtist, root.currentTitle);
 
-                if (!songPositionProc.running)
-                    songPositionProc.running = true;
+                root.updateCurrentLyric();
                 fetchLyricProc.running = false;
+            }
+        }
+
+        stderr: StdioCollector {
+            onStreamFinished: {
+                fetchLyricProc.running = false;
+            }
+        }
+    }
+
+    Timer {
+        id: lyricFileWatchTimer
+        interval: root.lyricWatchInterval
+        repeat: true
+        running: root.currentFile !== "" && root.currentStatus !== "Stopped"
+        onTriggered: {
+            if (!lyricMetadataProc.running && !fetchLyricProc.running)
+                lyricMetadataProc.running = true;
+        }
+    }
+
+    Process {
+        id: lyricMetadataProc
+        command: root.currentLyricPath !== ""
+            ? ["stat", "-c", "%Y\t%s\t%n", root.currentLyricPath]
+            : [root.helperPath, "--metadata"].concat(root.lyricLookupArgs(root.currentFile, root.currentTitle))
+        running: false
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const metadata = root.lyricMetadataFromLine(this.text.trim());
+                lyricMetadataProc.running = false;
+
+                if (metadata.signature === "") {
+                    if (root.currentLyricSignature !== "" || root.hasLyrics)
+                        root.requestLyrics(root.currentArtist, root.currentTitle, root.currentAlbum, root.currentFile, false);
+                    return;
+                }
+                if (metadata.signature === root.currentLyricSignature && metadata.path === root.currentLyricPath)
+                    return;
+
+                root.requestLyrics(root.currentArtist, root.currentTitle, root.currentAlbum, root.currentFile, false);
+            }
+        }
+
+        stderr: StdioCollector {
+            onStreamFinished: {
+                lyricMetadataProc.running = false;
             }
         }
     }

@@ -20,7 +20,7 @@
   },
   "metadata": {
     "defaultSettings": {
-      "playerName": "mpd",
+      "mpdSocketPath": "$XDG_RUNTIME_DIR/mpd/socket",
       "musicDirectory": "$HOME/Music",
       "lyricExtensions": ".lrc,.LRC",
       "widgetWidth": 300,

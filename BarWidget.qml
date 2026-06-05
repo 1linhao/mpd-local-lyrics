@@ -55,6 +55,7 @@ Item {
             return Math.max(20, widgetWidth - Style.marginS * 2 * scaling);
         return Math.max(20, widgetWidth - iconSize - Style.marginS * 3 * scaling - Style.margin2XXS);
     }
+    readonly property real lyricContentWidth: isVertical ? verticalLyricScrollText.contentWidth : lyricScrollText.contentWidth
     readonly property real dynamicWidgetWidth: isVertical ? capsuleThickness : Math.min(calculateContentWidth(), widgetWidth)
     readonly property real dynamicWidgetHeight: isVertical ? (hasDisplayLyric ? widgetWidth : compactSize) : Style.capsuleHeight
     readonly property real effectiveScrollSpeed: {
@@ -63,7 +64,7 @@ Item {
         if (lyricInterval <= 0)
             return scrollSpeed;
 
-        const distance = titleMetrics.contentWidth - stableTextMaxWidth + 50;
+        const distance = lyricContentWidth - stableTextMaxWidth + 50;
         if (distance <= 0)
             return scrollSpeed;
 
@@ -178,7 +179,7 @@ Item {
                     fadeCornerRadius: Style.radiusM
                     fadeRoundLeftCorners: false
                     waitBeforeScrolling: 700
-                    scrollCycleDuration: Math.max(1000, ((titleMetrics.contentWidth + 50) / Math.max(1, root.effectiveScrollSpeed)) * 1000)
+                    scrollCycleDuration: Math.max(1000, ((root.lyricContentWidth + 50) / Math.max(1, root.effectiveScrollSpeed)) * 1000)
                     transform: Translate {
                         y: root.textVerticalOffset
                     }
@@ -229,6 +230,7 @@ Item {
                         transformOrigin: Item.Center
 
                         NScrollText {
+                            id: verticalLyricScrollText
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
@@ -243,7 +245,7 @@ Item {
                             fadeCornerRadius: Style.radiusM
                             fadeRoundLeftCorners: true
                             waitBeforeScrolling: 700
-                            scrollCycleDuration: Math.max(1000, ((titleMetrics.contentWidth + 50) / Math.max(1, root.effectiveScrollSpeed)) * 1000)
+                            scrollCycleDuration: Math.max(1000, ((root.lyricContentWidth + 50) / Math.max(1, root.effectiveScrollSpeed)) * 1000)
 
                             NText {
                                 color: Color.mOnSurface
@@ -302,13 +304,4 @@ Item {
         }
     }
 
-    NText {
-        id: titleMetrics
-        visible: false
-        text: root.displayLyricText
-        applyUiScale: false
-        pointSize: root.customFontSize * scaling
-        family: root.customFontFamily
-        font.weight: Style.fontWeightMedium
-    }
 }

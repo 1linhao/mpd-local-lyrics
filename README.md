@@ -7,18 +7,19 @@ A Noctalia bar plugin that displays synced local LRC lyrics for MPD. It is based
 ## Features
 
 - Shows synced local `.lrc` lyrics in the Noctalia bar.
-- Uses `playerctl` for MPRIS metadata and playback position.
-- Falls back to `mpc --format '%file%' current` for MPD-relative file paths.
+- Connects directly to MPD over a Unix socket.
 - Supports configurable music directory, lyric extensions, font, width, scrolling, and hide behavior.
 - Opens Noctalia's media player panel anchored to this lyric widget.
 
 ## Requirements
 
 - Noctalia Shell `3.6.0` or newer
-- `playerctl`
-- `mpc`
 - `python3`
-- MPD MPRIS support, such as `mpd-mpris`
+- MPD configured with a Unix socket, for example:
+
+```conf
+bind_to_address "/run/user/1000/mpd/socket"
+```
 
 ## Usage
 
@@ -41,7 +42,7 @@ Restart or reload Noctalia, then enable **MPD Local Lyrics** in plugin settings.
 
 Main settings:
 
-- `playerName`: defaults to `mpd`.
+- `mpdSocketPath`: defaults to `$XDG_RUNTIME_DIR/mpd/socket`.
 - `musicDirectory`: defaults to `$HOME/Music`.
 - `lyricExtensions`: defaults to `.lrc,.LRC`.
 - `textVerticalOffset`: adjusts lyric/icon vertical alignment.

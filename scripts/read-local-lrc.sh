@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+mode="content"
+if [[ "${1:-}" == --* ]]; then
+  mode=${1#--}
+  shift
+fi
+
 music_dir=${1:-"$HOME/Music"}
 extensions=${2:-".lrc,.LRC"}
-track_url=${3:-}
+track_file=${3:-}
 track_title=${4:-}
 
 expand_path() {
@@ -41,8 +47,8 @@ done
 
 declare -a audio_candidates=()
 
-if [[ -n "$track_url" ]]; then
-  url_path=$(uri_to_path "$track_url" || true)
+if [[ -n "$track_file" ]]; then
+  url_path=$(uri_to_path "$track_file" || true)
   if [[ -n "${url_path:-}" ]]; then
     if [[ "$url_path" = /* ]]; then
       audio_candidates+=("$url_path")
@@ -52,36 +58,54 @@ if [[ -n "$track_url" ]]; then
   fi
 fi
 
-if command -v mpc >/dev/null 2>&1; then
-  mpc_file=$(mpc --format '%file%' current 2>/dev/null || true)
-  if [[ -n "$mpc_file" ]]; then
-    if [[ "$mpc_file" = /* ]]; then
-      audio_candidates+=("$mpc_file")
-    else
-      audio_candidates+=("$music_dir/$mpc_file")
-    fi
+find_lyric() {
+  local audio base ext lyric
+
+  for audio in "${audio_candidates[@]}"; do
+    base=${audio%.*}
+    for ext in "${ext_list[@]}"; do
+      lyric="${base}${ext}"
+      if [[ -f "$lyric" ]]; then
+        printf '%s\n' "$lyric"
+        return 0
+      fi
+    done
+  done
+
+  if [[ -n "$track_title" && -d "$music_dir" ]]; then
+    for ext in "${ext_list[@]}"; do
+      lyric=$(find "$music_dir" -type f -name "${track_title}${ext}" -print -quit 2>/dev/null || true)
+      if [[ -n "$lyric" && -f "$lyric" ]]; then
+        printf '%s\n' "$lyric"
+        return 0
+      fi
+    done
   fi
-fi
 
-for audio in "${audio_candidates[@]}"; do
-  base=${audio%.*}
-  for ext in "${ext_list[@]}"; do
-    lyric="${base}${ext}"
-    if [[ -f "$lyric" ]]; then
-      cat "$lyric"
-      exit 0
-    fi
-  done
-done
+  return 1
+}
 
-if [[ -n "$track_title" && -d "$music_dir" ]]; then
-  for ext in "${ext_list[@]}"; do
-    lyric=$(find "$music_dir" -type f -name "${track_title}${ext}" -print -quit 2>/dev/null || true)
-    if [[ -n "$lyric" && -f "$lyric" ]]; then
-      cat "$lyric"
-      exit 0
-    fi
-  done
-fi
+lyric=$(find_lyric || true)
+[[ -n "${lyric:-}" ]] || exit 1
 
-exit 1
+case "$mode" in
+  content)
+    cat "$lyric"
+    ;;
+  metadata)
+    stat -c '%Y	%s	%n' "$lyric"
+    ;;
+  with-metadata)
+    stat -c '#MPD_LOCAL_LYRICS	%Y	%s	%n' "$lyric"
+    cat "$lyric"
+    ;;
+  path)
+    printf '%s\n' "$lyric"
+    ;;
+  *)
+    printf 'Unknown mode: --%s\n' "$mode" >&2
+    exit 2
+    ;;
+esac
+
+exit 0

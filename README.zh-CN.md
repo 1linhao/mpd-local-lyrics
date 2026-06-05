@@ -7,18 +7,19 @@
 ## 特性
 
 - 在 Noctalia 状态栏显示本地同步 `.lrc` 歌词。
-- 使用 `playerctl` 获取 MPRIS 元数据和播放进度。
-- 当 MPD 返回相对路径时，回退到 `mpc --format '%file%' current`。
+- 通过 Unix socket 直接连接 MPD。
 - 支持配置音乐目录、歌词扩展名、字体、宽度、滚动和隐藏行为。
 - 点击歌词部件时，在该部件位置锚定打开 Noctalia 媒体播放器面板。
 
 ## 依赖
 
 - Noctalia Shell `3.6.0` 或更新版本
-- `playerctl`
-- `mpc`
 - `python3`
-- MPD 的 MPRIS 支持，例如 `mpd-mpris`
+- MPD 已配置 Unix socket，例如：
+
+```conf
+bind_to_address "/run/user/1000/mpd/socket"
+```
 
 ## 使用
 
@@ -41,7 +42,7 @@ chmod +x ~/.config/noctalia/plugins/mpd-local-lyrics/scripts/read-local-lrc.sh
 
 主要设置项：
 
-- `playerName`：默认是 `mpd`。
+- `mpdSocketPath`：默认是 `$XDG_RUNTIME_DIR/mpd/socket`。
 - `musicDirectory`：默认是 `$HOME/Music`。
 - `lyricExtensions`：默认是 `.lrc,.LRC`。
 - `textVerticalOffset`：调整歌词和图标的垂直位置。
