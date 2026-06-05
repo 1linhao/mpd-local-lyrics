@@ -48,18 +48,72 @@ Item {
     readonly property real capsuleThickness: Style.capsuleHeight
     readonly property string emptyGlyph: "​"
     readonly property string displayLyricText: lyricText === emptyGlyph ? "" : lyricText
+    readonly property bool hasDisplayLyric: displayLyricText !== ""
     readonly property int compactSize: Math.round(iconSize + Style.marginS * 2 * scaling)
+    readonly property real stableTextMaxWidth: {
+        if (isVertical)
+            return Math.max(20, widgetWidth - Style.marginS * 2 * scaling);
+        return Math.max(20, widgetWidth - iconSize - Style.marginS * 3 * scaling - Style.margin2XXS);
+    }
+    readonly property real dynamicWidgetWidth: isVertical ? capsuleThickness : Math.min(calculateContentWidth(), widgetWidth)
+    readonly property real dynamicWidgetHeight: isVertical ? (hasDisplayLyric ? widgetWidth : compactSize) : Style.capsuleHeight
+    readonly property real effectiveScrollSpeed: {
+        if (!adaptScrollSpeed)
+            return scrollSpeed;
+        if (lyricInterval <= 0)
+            return scrollSpeed;
 
-    implicitWidth: visible ? (isVertical ? capsuleThickness : container.width) : 0
-    implicitHeight: visible ? (isVertical ? container.height : Style.capsuleHeight) : 0
+        const distance = titleMetrics.contentWidth - stableTextMaxWidth + 50;
+        if (distance <= 0)
+            return scrollSpeed;
+
+        return Math.max(1, (distance / lyricInterval) * 1250);
+    }
+    readonly property int mappedScrollMode: {
+        if (scrollMode === "always")
+            return NScrollText.ScrollMode.Always;
+        if (scrollMode === "hover")
+            return NScrollText.ScrollMode.Hover;
+        return NScrollText.ScrollMode.Never;
+    }
+
+    function calculateContentWidth() {
+        if (!hasDisplayLyric)
+            return compactSize;
+
+        var contentWidth = 0;
+        contentWidth += iconSize;
+        contentWidth += Style.marginS * scaling;
+        contentWidth += lyricScrollText.measuredWidth;
+        contentWidth += Style.margin2XXS;
+        contentWidth += Style.marginS * 2 * scaling;
+
+        return Math.max(compactSize, Math.ceil(contentWidth));
+    }
+
+    implicitWidth: visible ? root.dynamicWidgetWidth : 0
+    implicitHeight: visible ? root.dynamicWidgetHeight : 0
+
+    Behavior on implicitWidth {
+        NumberAnimation {
+            duration: Style.animationNormal
+            easing.type: Easing.InOutCubic
+        }
+    }
+    Behavior on implicitHeight {
+        NumberAnimation {
+            duration: Style.animationNormal
+            easing.type: Easing.InOutCubic
+        }
+    }
 
     Rectangle {
         id: container
         x: 0
         y: Style.pixelAlignCenter(parent.height, height)
 
-        width: isVertical ? capsuleThickness : root.lyricText === root.emptyGlyph ? root.compactSize : root.widgetWidth
-        height: isVertical ? (root.lyricText === root.emptyGlyph ? root.compactSize : root.widgetWidth) : Style.capsuleHeight
+        width: root.dynamicWidgetWidth
+        height: root.dynamicWidgetHeight
 
         radius: Style.radiusM
         color: Style.capsuleColor
@@ -67,12 +121,27 @@ Item {
         border.color: Style.capsuleBorderColor
         clip: true
 
+        Behavior on width {
+            NumberAnimation {
+                duration: Style.animationNormal
+                easing.type: Easing.InOutCubic
+            }
+        }
+        Behavior on height {
+            NumberAnimation {
+                duration: Style.animationNormal
+                easing.type: Easing.InOutCubic
+            }
+        }
+
         Item {
+            id: mainContainer
             anchors.fill: parent
+            anchors.leftMargin: isVertical ? 0 : Style.marginS * scaling
+            anchors.rightMargin: isVertical ? 0 : Style.marginS * scaling
 
             RowLayout {
-                anchors.fill: parent
-                anchors.margins: Style.marginS * scaling
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.marginS * scaling
                 visible: !isVertical
 
@@ -92,22 +161,35 @@ Item {
                     }
                 }
 
-                Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
+                NScrollText {
+                    id: lyricScrollText
+                    text: root.displayLyricText
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredHeight: root.capsuleThickness
+                    visible: root.hasDisplayLyric
 
-                    ScrollingText {
-                        anchors.fill: parent
-                        anchors.verticalCenter: parent.verticalCenter
+                    maxWidth: {
+                        const availableWidth = mainContainer.width - root.iconSize - Style.marginS * root.scaling - Style.margin2XXS;
+                        return Math.max(20, availableWidth);
+                    }
+                    scrollMode: root.mappedScrollMode
+                    forcedHover: root.hovered
+                    fadeExtent: 0.1
+                    fadeCornerRadius: Style.radiusM
+                    fadeRoundLeftCorners: false
+                    waitBeforeScrolling: 700
+                    scrollCycleDuration: Math.max(1000, ((titleMetrics.contentWidth + 50) / Math.max(1, root.effectiveScrollSpeed)) * 1000)
+                    transform: Translate {
+                        y: root.textVerticalOffset
+                    }
 
-                        text: root.displayLyricText
-                        textColor: Color.mOnSurface
-                        fontSize: root.customFontSize * scaling
-                        fontFamily: root.customFontFamily
-                        mode: root.scrollMode
-                        speed: root.adaptScrollSpeed ? adaptiveSpeed : root.scrollSpeed
-                        needsScroll: titleMetrics.contentWidth > parent.width
+                    NText {
+                        color: Color.mOnSurface
+                        pointSize: root.customFontSize * root.scaling
+                        family: root.customFontFamily
+                        applyUiScale: false
+                        font.weight: Style.fontWeightMedium
+                        verticalAlignment: Text.AlignVCenter
                     }
                 }
             }
@@ -146,17 +228,31 @@ Item {
                         rotation: root.verticalRotationDirection === "cw" ? -90 : 90
                         transformOrigin: Item.Center
 
-                        ScrollingText {
-                            anchors.fill: parent
+                        NScrollText {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
+                            anchors.verticalCenterOffset: root.textVerticalOffset
 
                             text: root.displayLyricText
-                            textColor: Color.mOnSurface
-                            fontSize: root.customFontSize * scaling
-                            fontFamily: root.customFontFamily
-                            mode: root.scrollMode
-                            speed: root.adaptScrollSpeed ? adaptiveSpeed : root.scrollSpeed
-                            needsScroll: titleMetrics.contentWidth > parent.width
+                            maxWidth: Math.max(20, parent.width)
+                            alwaysMaxWidth: true
+                            scrollMode: root.mappedScrollMode
+                            forcedHover: root.hovered
+                            fadeExtent: 0.1
+                            fadeCornerRadius: Style.radiusM
+                            fadeRoundLeftCorners: true
+                            waitBeforeScrolling: 700
+                            scrollCycleDuration: Math.max(1000, ((titleMetrics.contentWidth + 50) / Math.max(1, root.effectiveScrollSpeed)) * 1000)
+
+                            NText {
+                                color: Color.mOnSurface
+                                pointSize: root.customFontSize * root.scaling
+                                family: root.customFontFamily
+                                applyUiScale: false
+                                font.weight: Style.fontWeightMedium
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
                 }
@@ -214,181 +310,5 @@ Item {
         pointSize: root.customFontSize * scaling
         family: root.customFontFamily
         font.weight: Style.fontWeightMedium
-    }
-
-    component ScrollingText: Item {
-        id: scrollText
-        property string text
-        property string _displayedText: ""
-        property color textColor
-        property real fontSize
-        property string fontFamily
-        property string mode
-        property real speed
-        property bool needsScroll
-        readonly property real adaptiveSpeed: {
-            if (!root.adaptScrollSpeed)
-                return root.scrollSpeed;
-            if (root.lyricInterval <= 0)
-                return root.scrollSpeed;
-
-            const distance = titleMetrics.contentWidth - scrollText.width + 50;
-            if (distance <= 0)
-                return root.scrollSpeed;
-
-            return Math.max(1, (distance / root.lyricInterval) * 1250);
-        }
-
-        implicitHeight: titleText.height
-        clip: true
-        opacity: 1.0
-
-        property bool isScrolling: false
-        property bool isResetting: false
-
-        onTextChanged: {
-            if (_displayedText === "") {
-                _displayedText = text;
-                if (needsScroll && mode === "always")
-                    scrollTimer.restart();
-                return;
-            }
-            transitionAnim.restart();
-        }
-
-        onNeedsScrollChanged: {
-            if (!needsScroll) {
-                isScrolling = false;
-                isResetting = false;
-                scrollTimer.stop();
-            } else {
-                updateState();
-            }
-        }
-
-        SequentialAnimation {
-            id: transitionAnim
-            NumberAnimation {
-                target: scrollText
-                property: "opacity"
-                to: 0
-                duration: 150
-                easing.type: Easing.OutQuad
-            }
-            ScriptAction {
-                script: {
-                    scrollText._displayedText = scrollText.text;
-                    scrollText.isScrolling = false;
-                    scrollText.isResetting = false;
-                    scrollContainer.scrollX = 0;
-                }
-            }
-            NumberAnimation {
-                target: scrollText
-                property: "opacity"
-                to: 1
-                duration: 200
-                easing.type: Easing.InQuad
-            }
-            ScriptAction {
-                script: {
-                    if (scrollText.needsScroll && scrollText.mode === "always")
-                        scrollTimer.restart();
-                }
-            }
-        }
-
-        Timer {
-            id: scrollTimer
-            interval: 700
-            onTriggered: {
-                if (mode === "always" && needsScroll) {
-                    scrollText.isScrolling = true;
-                    scrollText.isResetting = false;
-                }
-            }
-        }
-
-        function updateState() {
-            if (mode === "none") {
-                isScrolling = false;
-                isResetting = false;
-            } else if (mode === "always") {
-                if (needsScroll) {
-                    if (root.hovered) {
-                        isScrolling = false;
-                        isResetting = true;
-                    } else {
-                        if (!transitionAnim.running)
-                            scrollTimer.restart();
-                    }
-                } else {
-                    isScrolling = false;
-                }
-            } else if (mode === "hover") {
-                isScrolling = root.hovered && needsScroll;
-                isResetting = !root.hovered && needsScroll;
-            }
-        }
-
-        onWidthChanged: updateState()
-        Connections {
-            target: root
-            function onHoveredChanged() {
-                scrollText.updateState();
-            }
-        }
-        onModeChanged: updateState()
-
-        Item {
-            id: scrollContainer
-            height: parent.height
-            property real scrollX: 0
-            x: scrollX
-
-            RowLayout {
-                spacing: root.widgetWidth
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: root.textVerticalOffset
-                x: root.isVertical && root.verticalRotationDirection === "cw" ? parent.height - height : 0
-
-                NText {
-                    id: titleText
-                    text: scrollText._displayedText
-                    color: textColor
-                    pointSize: fontSize
-                    family: scrollText.fontFamily
-                    applyUiScale: false
-                    font.weight: Style.fontWeightMedium
-                }
-
-                NText {
-                    text: scrollText._displayedText
-                    color: textColor
-                    pointSize: fontSize
-                    family: scrollText.fontFamily
-                    applyUiScale: false
-                    font.weight: Style.fontWeightMedium
-                    visible: scrollText.needsScroll && scrollText.isScrolling
-                }
-            }
-
-            NumberAnimation on scrollX {
-                running: scrollText.isResetting
-                to: 0
-                duration: 300
-                easing.type: Easing.OutQuad
-                onFinished: scrollText.isResetting = false
-            }
-
-            NumberAnimation on scrollX {
-                running: scrollText.isScrolling && !scrollText.isResetting
-                from: 0
-                to: -(titleMetrics.contentWidth + 50)
-                duration: Math.max(1000, ((titleMetrics.contentWidth + 50) / Math.max(1, scrollText.speed)) * 1000)
-                loops: Animation.Infinite
-                easing.type: Easing.Linear
-            }
-        }
     }
 }

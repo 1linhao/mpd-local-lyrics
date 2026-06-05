@@ -146,7 +146,7 @@ Item {
         if (index < 0) {
             lastLyric = "";
             songIndex = index;
-            lyricInterval = Math.max(0, (songLyrics[0].time - currentPosition) * 1000);
+            lyricInterval = 0;
             return;
         }
 
@@ -154,7 +154,7 @@ Item {
         lastLyric = songLyrics[index]?.lyric ?? "";
 
         if (index + 1 < songLyrics.length)
-            lyricInterval = Math.max(0, (songLyrics[index + 1].time - currentPosition) * 1000);
+            lyricInterval = Math.max(0, (songLyrics[index + 1].time - songLyrics[index].time) * 1000);
         else
             lyricInterval = 0;
     }
